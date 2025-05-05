@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FaWikipediaW, FaGithub, FaGitlab, FaBitbucket } from 'react-icons/fa';
+import { FaWikipediaW, FaGithub, FaGitlab, FaBitbucket, FaFolder } from 'react-icons/fa';
 import ThemeToggle from '@/components/theme-toggle';
 import Mermaid from '../components/Mermaid';
 
@@ -45,13 +45,41 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Parse repository URL/input and extract owner and repo
-  const parseRepositoryInput = (input: string): { owner: string, repo: string, type: string, fullPath?: string } | null => {
+  const parseRepositoryInput = (input: string): { owner: string, repo: string, type: string, fullPath?: string, isLocalPath?: boolean } | null => {
     input = input.trim();
 
     let owner = '', repo = '', type = 'github', fullPath;
+    let isLocalPath = false;
 
+    // Check if input is a Windows path (starts with drive letter followed by colon)
+    const isWindowsPath = /^[a-zA-Z]:\\/.test(input);
+    
+    // Handle local file path format (Unix or Windows paths)
+    if (input.startsWith('/') || isWindowsPath) {
+      isLocalPath = true;
+      type = 'local';
+      
+      // For Windows paths, normalize path separators to forward slashes for consistent handling
+      if (isWindowsPath) {
+        input = input.replace(/\\/g, '/');
+      }
+      
+      // Use the last folder name as repo and second-to-last as owner for routing purposes
+      const parts = input.split('/').filter(Boolean); // Remove empty strings
+      if (parts.length >= 2) {
+        owner = parts[parts.length - 2];
+        repo = parts[parts.length - 1];
+        fullPath = input; // Store the full path for API calls
+      } else if (parts.length === 1) {
+        owner = 'local';
+        repo = parts[0];
+        fullPath = input;
+      } else {
+        return null; // Invalid path
+      }
+    }
     // Handle GitHub URL format
-    if (input.startsWith('https://github.com/')) {
+    else if (input.startsWith('https://github.com/')) {
       type = 'github';
       const parts = input.replace('https://github.com/', '').split('/');
       owner = parts[0] || '';
@@ -99,7 +127,7 @@ export default function Home() {
       return null;
     }
 
-    return { owner, repo, type, fullPath };
+    return { owner, repo, type, fullPath, isLocalPath };
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -117,14 +145,14 @@ export default function Home() {
     const parsedRepo = parseRepositoryInput(repositoryInput);
     
     if (!parsedRepo) {
-      setError('Invalid repository format. Use "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", or "https://bitbucket.org/owner/repo" format.');
+      setError('Invalid repository format. Use "owner/repo", "https://github.com/owner/repo", "https://gitlab.com/owner/repo", or "https://bitbucket.org/owner/repo", or a local folder path like "/home/user/projects/myrepo" or "C:\\Users\\username\\projects\\myrepo".format.');
       setIsSubmitting(false);
       return;
     }
     
-    const { owner, repo, type } = parsedRepo;
+    const { owner, repo, type, fullPath, isLocalPath } = parsedRepo;
     
-    // Store tokens in query params if they exist
+    // Store tokens and other data in query params
     const params = new URLSearchParams();
     if (accessToken) {
       if (selectedPlatform === 'github') {
@@ -137,6 +165,9 @@ export default function Home() {
     }
     if (type !== 'github') {
       params.append('type', type);
+    }
+    if (isLocalPath && fullPath) {
+      params.append('local_path', fullPath);
     }
     
     const queryString = params.toString() ? `?${params.toString()}` : '';
@@ -165,14 +196,16 @@ export default function Home() {
                     ? <FaGitlab className="text-gray-400" /> 
                     : repositoryInput.includes('bitbucket.org') 
                     ? <FaBitbucket className="text-gray-400" /> 
-                    : <FaGithub className="text-gray-400" />
+                    : 
+                   repositoryInput.startsWith('/') ? <FaFolder className="text-gray-400" /> :
+                   <FaGithub className="text-gray-400" />
                   }
                 </div>
                 <input
                   type="text"
                   value={repositoryInput}
                   onChange={(e) => setRepositoryInput(e.target.value)}
-                  placeholder="owner/repo or GitHub/GitLab/Bitbucket URL"
+                  placeholder="owner/repo, GitHub/GitLab/Bitbucket URL, or local folder path"
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 {error && (
@@ -290,7 +323,7 @@ export default function Home() {
           <FaWikipediaW className="text-5xl text-purple-500 mb-4" />
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">Welcome to DeepWiki (Open Source)</h2>
           <p className="text-gray-600 dark:text-gray-400 text-center mb-4">
-            Enter a GitHub or GitLab or Bitbucket repository to generate a comprehensive wiki based on its structure.
+            Enter a GitHub/GitLab or Bitbucket repository or local folder path to generate a comprehensive wiki based on its structure.
           </p>
           <div className="text-gray-500 dark:text-gray-500 text-sm text-center mb-6">
             <p className="mb-2">You can enter a repository in these formats:</p>
@@ -299,6 +332,8 @@ export default function Home() {
               <li>https://github.com/openai/codex</li>
               <li>https://gitlab.com/gitlab-org/gitlab</li>
               <li>https://bitbucket.org/atlassian/atlaskit</li>
+              <li>/home/username/projects/my-project</li>
+              <li>C:\Users\username\projects\my-project</li>
             </ul>
           </div>
 

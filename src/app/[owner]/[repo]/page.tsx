@@ -3,7 +3,7 @@
 
 import React, { useCallback, useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { FaExclamationTriangle, FaBookOpen, FaWikipediaW, FaGithub, FaGitlab, FaBitbucket, FaDownload, FaFileExport, FaHome } from 'react-icons/fa';
+import { FaExclamationTriangle, FaBookOpen, FaWikipediaW, FaGithub, FaGitlab, FaBitbucket, FaDownload, FaFileExport, FaHome, FaFolder } from 'react-icons/fa';
 import Link from 'next/link';
 import ThemeToggle from '@/components/theme-toggle';
 import Markdown from '@/components/Markdown';
@@ -40,7 +40,10 @@ const wikiStyles = `
 `;
 
 // Helper functions for token handling and API requests
-const getRepoUrl = (owner: string, repo: string, repoType: string): string => {
+const getRepoUrl = (owner: string, repo: string, repoType: string, localPath?: string): string => {
+  if (repoType === 'local' && localPath) {
+    return localPath;
+  }
   return repoType === 'github'
     ? `https://github.com/${owner}/${repo}`
     : repoType === 'gitlab'
@@ -114,18 +117,20 @@ export default function RepoWikiPage() {
   const owner = params.owner as string;
   const repo = params.repo as string;
 
-  // Extract tokens from search params
+  // Extract tokens and other params from search params
   const githubToken = searchParams.get('github_token') || '';
   const gitlabToken = searchParams.get('gitlab_token') || '';
   const bitbucketToken = searchParams.get('bitbucket_token') || '';
   const repoType = searchParams.get('type') || 'github';
+  const localPath = searchParams.get('local_path') || '';
 
   // Initialize repo info
   const repoInfo = useMemo(() => ({
     owner,
     repo,
-    type: repoType
-  }), [owner, repo, repoType]);
+    type: repoType,
+    localPath: localPath
+  }), [owner, repo, repoType, localPath]);
 
   // State variables
   const [isLoading, setIsLoading] = useState(true);
@@ -204,7 +209,7 @@ export default function RepoWikiPage() {
         console.log(`Starting content generation for page: ${page.title}`);
 
         // Get repository URL
-        const repoUrl = getRepoUrl(owner, repo, repoInfo.type);
+        const repoUrl = getRepoUrl(owner, repo, repoInfo.type, repoInfo.localPath);
 
         // Create the prompt content - simplified to avoid message dialogs
         const promptContent =
@@ -368,7 +373,7 @@ Use proper markdown formatting for code blocks and include a vertical Mermaid di
       setLoadingMessage('Determining wiki structure...');
 
       // Get repository URL
-      const repoUrl = getRepoUrl(owner, repo, repoInfo.type);
+      const repoUrl = getRepoUrl(owner, repo, repoInfo.type, repoInfo.localPath);
 
       // Prepare request body
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -642,7 +647,30 @@ IMPORTANT:
       let fileTreeData = '';
       let readmeContent = '';
 
-      if (repoInfo.type === 'github') {
+      if (repoInfo.type === 'local' && repoInfo.localPath) {
+        // Local folder approach
+        setLoadingMessage('Fetching local repository structure...');
+        console.log(`Fetching local repository structure from: ${repoInfo.localPath}`);
+        
+        try {
+          // Call the local repo structure endpoint
+          const response = await fetch(`http://localhost:8001/local_repo/structure?path=${encodeURIComponent(repoInfo.localPath)}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            fileTreeData = data.file_tree;
+            readmeContent = data.readme;
+            console.log('Successfully fetched local repository structure');
+          } else {
+            const errorData = await response.text();
+            throw new Error(`Could not fetch local repository structure. API Error: ${errorData || response.statusText}`);
+          }
+        } catch (err) {
+          console.error('Error fetching local repository structure:', err);
+          throw err;
+        }
+      }
+      else if (repoInfo.type === 'github') {
         // GitHub API approach
         // Try to get the tree data for common branch names
         let treeData = null;
@@ -906,7 +934,7 @@ IMPORTANT:
       });
 
       // Get repository URL
-      const repoUrl = getRepoUrl(repoInfo.owner, repoInfo.repo, repoInfo.type);
+      const repoUrl = getRepoUrl(repoInfo.owner, repoInfo.repo, repoInfo.type, repoInfo.localPath);
 
       // Make API call to export wiki
       const response = await fetch(`${SERVER_BASE_URL}/export/wiki`, {
@@ -1067,24 +1095,30 @@ IMPORTANT:
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 flex items-center">
                 {repoInfo.type === 'github' ? (
                   <FaGithub className="mr-1" />
+                ) : repoInfo.type === 'local' ? (
+                  <FaFolder className="mr-1" />
                 ) : repoInfo.type === 'gitlab' ? (
                   <FaGitlab className="mr-1" />
                 ) : (
                   <FaBitbucket className="mr-1" />
                 )}
-                <a
-                  href={repoInfo.type === 'github'
-                    ? `https://github.com/${repoInfo.owner}/${repoInfo.repo}`
-                    : repoInfo.type === 'gitlab'
+                {repoInfo.type === 'local' ? (
+                  <span>{repoInfo.localPath}</span>
+                ) : (
+                  <a
+                    href={repoInfo.type === 'github'
+                      ? `https://github.com/${repoInfo.owner}/${repoInfo.repo}`
+                      : repoInfo.type === 'gitlab'
                     ? `https://gitlab.com/${repoInfo.owner}/${repoInfo.repo}`
                     : `https://bitbucket.org/${repoInfo.owner}/${repoInfo.repo}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-purple-500 transition-colors"
-                >
-                  {repoInfo.owner}/{repoInfo.repo}
-                </a>
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-purple-500 transition-colors"
+                  >
+                    {repoInfo.owner}/{repoInfo.repo}
+                  </a>
+                )}
               </div>
 
               {/* Export buttons */}
@@ -1211,7 +1245,7 @@ IMPORTANT:
             </div>
             <Ask
               repoUrl={repoInfo.owner && repoInfo.repo
-                ? getRepoUrl(repoInfo.owner, repoInfo.repo, repoInfo.type)
+                ? getRepoUrl(repoInfo.owner, repoInfo.repo, repoInfo.type, repoInfo.localPath)
                 : "https://github.com/AsyncFuncAI/deepwiki-open"
               }
               githubToken={githubToken}
