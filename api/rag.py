@@ -305,7 +305,7 @@ IMPORTANT FORMATTING RULES:
             repo_url_or_path, 
             type, 
             access_token, 
-            local_ollama=self.local_ollama, # Use instance attribute self.local_ollama
+            local_ollama=self.local_ollama,
             excluded_dirs=excluded_dirs,
             excluded_files=excluded_files
         )
